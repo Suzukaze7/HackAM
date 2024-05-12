@@ -17,6 +17,7 @@
 #include<numeric>
 #include<functional>
 #include<iomanip>
+#include<fstream>
 #ifdef YJL
 #include<debug.h>
 #else
@@ -26,11 +27,19 @@
 using namespace std;
 using ll = long long;
 
-constexpr int N = 2e5 + 10;
+#include<random>
+mt19937_64 rng(random_device{}());
+ll rdi(ll l, ll r) {
+    return rng() % (r-l+1) + l;
+}
 
 int main() {
     cin.tie(nullptr)->sync_with_stdio(false);
-    
+    int n = rdi(1, 10);
+    cout<<n<<'\n';
+    for(int i=1; i<=n; ++i) {
+        cout<<rdi(0, 10)<<" \n"[i==n];
+    }
     return 0;
 }
 /*

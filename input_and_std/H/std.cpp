@@ -1,4 +1,6 @@
 #include<bits/stdc++.h>
+#include<fstream>
+#include<random>
 
 using namespace std;
 
@@ -20,32 +22,29 @@ const long long INF=(1ll<<60);
 const long long inf=(1ll<<30);
 const int mod=1e9+7;
 
-long long n,m,V;
-bool st[N];
-long long num[N],dp[N];
+long long n,num[N],sum[N];
+
+long long dfs(long long n)
+{
+    if(sum[n]!=0)return sum[n];
+    sum[n]=1;
+    for(int i=1;i<=n/i;i++)
+    {
+        if(n%i!=0||i>=n)continue;
+        sum[n]+=dfs(i);
+        if(n/i!=i&&i!=1)sum[n]+=dfs(n/i);
+    }
+    return sum[n];
+}
 
 int main()
 {
 	ios::sync_with_stdio(false);cin.tie(0);cout.tie(0);
-    cin>>n>>m>>V;
+	cin>>n;
     for(int i=1;i<=n;i++)
     {
         cin>>num[i];
+        cout<<dfs(num[i])<<" ";
     }
-    for(int i=1;i<=V;i++)
-    {
-        dp[i]=-INF;
-    }
-    long long ans=-1;
-    sort(num+1,num+n+1);
-    for(int i=1;i<=n;i++)
-    {
-        if(V>=num[i])ans=max(ans,dp[V-num[i]]+1+num[i]*m);
-        for(int j=V;j>=num[i];j--)
-        {
-            dp[j]=max(dp[j-num[i]]+1,dp[j]);
-        }
-    }
-    cout<<ans;
-    return 0;
+	return 0;
 }
