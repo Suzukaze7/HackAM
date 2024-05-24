@@ -1,16 +1,39 @@
-#include<bits/stdc++.h>
+#include <bits/stdc++.h>
+
 using namespace std;
-#define int long long 
-const int N = 1e5+10;
-int f[N];
+#define IOS ios::sync_with_stdio(false),cin.tie(nullptr),cout.tie(nullptr);
+#define int long long
+
+# ifdef LOCAL
+
+# include "C:\Program Files\DEBUG\debug.h"
+
+# else
+# define debug(...) 114514
+# define ps 114514
+# endif
+
 signed main() {
-    for(int i=1;i<N;i++) {
-        f[i]++;
-        for(int j=i+i;j<N;j+=i) f[j]+=f[i];
+    IOS
+    int n;
+    cin >> n;
+    vector<int> a(n);
+    for (auto &i: a) {
+        cin >> i;
     }
-    int n;cin>>n;
-    for(int i=1;i<=n;i++) {
-        int x;cin>>x;
-        cout<<f[x]<<" ";
+    int res = accumulate(a.begin(), a.end(), 0);
+    if (res % 2) {
+        cout << -1 << endl;
+    } else {
+        int ans1 = 0, ans2 = 0;
+        for (int i = 0; i < n; i++) {
+            if (a[i] % 2) {
+                ans1++;
+            } else {
+                ans2++;
+            }
+        }
+        cout << ans1 / 2 + ans2 << endl;
     }
+    return 0;
 }

@@ -1,6 +1,12 @@
-n = int(input())
-lst = map(int,input().split())
-s = 0
-for it in lst:
-    s = s + it
-print(max(0,s-50))
+#include<bits/stdc++.h>
+using namespace std;
+int main() {
+    int n;cin>>n;
+    int sum=0;
+    for(int i=1;i<=n;i++) {
+        int x;cin>>x;
+        sum+=x;
+    }
+    if(sum<=50) cout<<0<<endl;
+    else cout<<sum-50<<endl;
+}

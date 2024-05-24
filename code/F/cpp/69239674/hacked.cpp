@@ -1,16 +1,24 @@
-#include<bits/stdc++.h>
+#include <bits/stdc++.h>
+#define int long long
+#define ull unsigned long long  
+#define pb push_back
+#define fi first
+#define se second
 using namespace std;
-#define int long long 
-const int N = 1e5+10;
-int f[N];
-signed main() {
-    for(int i=1;i<N;i++) {
-        f[i]++;
-        for(int j=i+i;j<N;j+=i) f[j]+=f[i];
-    }
-    int n;cin>>n;
-    for(int i=1;i<=n;i++) {
-        int x;cin>>x;
-        cout<<f[x]<<" ";
-    }
+const int INF=1e6+5;
+int n,a[INF];
+signed main()
+{
+    ios::sync_with_stdio(false);
+    cin>>n;int sum=0;
+    for (int i=1;i<=n;i++) cin>>a[i],sum+=a[i];
+    if (sum&1) {cout<<"-1\n";return 0;}
+    for (int i=1;i<=n;i++) a[i]%=2;
+    sum=0;
+    int ans=0;
+    for (int i=1;i<=n;i++)
+        if (a[i]&1) sum++;
+        else ans++;
+    cout<<ans+sum/2<<"\n";
+    return 0;
 }

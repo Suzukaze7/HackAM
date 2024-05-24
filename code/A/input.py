@@ -1,5 +1,8 @@
+import io
 import random
+import sys
 
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def generate_random_matrix(maxn):
     # 随机生成 n 和 m

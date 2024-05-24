@@ -1,44 +1,78 @@
-#include <bits/stdc++.h>
-using namespace std;
-typedef long long ll;
-typedef pair<int, int> pii;
-#define int long long
-const int N = 1e5 + 10, mod = 1e9 + 7;
+//#pragma GCC optimize(2)
 
-void solve()
-{
-    int n;
-    cin >> n;
-    int c0 = 0, c1 = 0, c2 = 0;
-    for (int i = 1; i <= n; i++)
-    {
-        int x;
-        cin >> x;
-        if (!x)
-            c0++;
-        else if (x & 1)
-            c1++;
-        else
-            c2++;
-    }
-    int ans = 0;
-    if (c1 & 1)
-    {
-        cout << -1 << '\n';
-        return;
-    }
-    ans += c0;
-    ans += c2 + c1 / 2;
-    cout << ans;
+#include <iostream>
+#include <cstring>
+#include <algorithm>
+#include <vector>
+#include <queue>
+#include<stack>
+#include<cmath>
+#include <unordered_set>
+#include <unordered_map>
+#include<set>
+#include <map>
+#include<ctime>
+#include<bitset>
+
+using namespace std;
+
+typedef long long LL;
+typedef unsigned long long ULL;
+typedef pair<int,int>PII;
+
+#define fi first
+#define se second
+#define ls u<<1
+#define rs u<<1|1
+#define all(ss) ss.begin(),ss.end()
+#define pb push_back
+
+
+int const mod=1e9+7; 
+int const B=507;
+//int const mod=998244353; 
+//int const base=131,mod=2e9+11;
+int const N=2e5+7,M=2e6+7;
+int const INF=0x3f3f3f3f;
+LL const INFF=0x3f3f3f3f3f3f3f3f;
+
+int n,m,q,k;
+int x,y,z;
+int a[N];
+string s,t;
+vector<int>g[N];
+
+
+void solve(){
+    cin>>n;
+    int ans=0,one=0;
+    for(int i=0;i<n;i++){
+		cin>>x;
+		if(x%2==0)	ans++;
+		else one++;
+	}
+	
+	if(one%2)	ans=-1;
+	else ans+=one/2;
+	cout<<ans;
+} 
+
+
+void init(){
+	
 }
 
-signed main()
+int main()
 {
-    ios::sync_with_stdio(0);
-    cin.tie(0);
-    int t;
-    t = 1;
-    while (t--)
-        solve();
-    return 0;
+    //std::ios::sync_with_stdio(false);   cin.tie(0); cout.tie(0);
+    //init();
+    int T=1;
+    //cin>>T;
+    //scanf("%d",&T);
+    
+   	for(int i=1;i<=T;i++){
+	   	solve();
+	}
+	
+	return 0;
 }

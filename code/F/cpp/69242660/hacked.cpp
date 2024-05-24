@@ -1,27 +1,48 @@
-#include <bits/stdc++.h>
-// #define int long long
-#define inf 0x3f3f3f3f
-#define ll long long
-#define pii pair<int, int>
-#define db double
+//#pragma GCC optimize(2)
+#include<bits/stdc++.h>
 using namespace std;
-const int maxn = 1e5 + 10;
-const int mod = 998244353;
+#define de(a) cout << #a << " = " << a << "\n";
+#define deg(a) cout << #a << " = " << a << " ";
+#define IOS ios::sync_with_stdio(false),cin.tie(0),cout.tie(0);
+#define int long long
+#define lowbit(x)  ((x) & - (x))
+#define LF(x)   fixed<<setprecision(x)
+//vector<vector<int>> ma((n+10),vector<int>(m+10));
+typedef pair<int, int> PII;
+const double pi = acos(-1.);
+
+int qmi(int a, int b, int q) {
+	int res = 1 % q;
+	while (b) {
+		if (b & 1)res = res * a % q;
+		a = a * a % q;
+		b >>= 1;
+	}
+	return res;
+}
+int dx[4] = {0, 0, -1, 1}, dy[4] = {-1, 1, 0, 0}; //L R D U
+int n, m;
+string str;
+const int N = 110;
+int c[N], ans, ji, ou;
+
+void solve() {
+	cin >> n;
+	for (int i = 1, x; i <= n; i++) {
+		cin >> x;
+		if (!x)ans++;
+		else if (x & 1)ji++;
+		else ou++;
+	}
+	if (ji & 1)cout << -1;
+	else cout << ji / 2 + ou + ans;
+}
+
 signed main() {
-    ios::sync_with_stdio(false);
-    cin.tie(0), cout.tie(0);
-    int n, cntji = 0;
-    cin >> n;
-    for (int i = 1; i <= n; i++) {
-        int x;
-        cin >> x;
-        cntji += x & 1;
-    }
-    if (cntji & 1) {
-        cout << -1 << endl;
-    } else {
-        cout << cntji / 2 + (n - cntji) << endl;
-    }
-    // system("pause");
-    return 0;
+	IOS
+	int T = 1;
+	//	cin>>T;
+	while (T--) solve();
+
+	return 0;
 }

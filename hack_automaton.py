@@ -7,8 +7,8 @@ from requests import get
 from bs4 import BeautifulSoup
 from func_timeout import FunctionTimedOut, func_set_timeout
 
+THREAD_COUNT = max(1, cpu_count() // 2)
 base_dir = Path('code')
-THREAD_COUNT = cpu_count() - 2
 
 
 class Run:
@@ -16,13 +16,15 @@ class Run:
         self.__src: Path = Path(src)
         if self.__src.suffix == '.cpp':
             self.__dst = self.__src.with_suffix('.exe')
-            if not self.__dst.exists():
-                subprocess.run(
-                    ['g++', '-std=c++17', self.__src, '-o', self.__dst])
+            subprocess.run(['g++', '-std=c++17', self.__src, '-o', self.__dst])
             self.__is_cpp = True
         else:
             self.__dst = self.__src
             self.__is_cpp = False
+
+    def __del__(self):
+        if self.__is_cpp:
+            self.__dst.unlink(True)
 
     def __str__(self):
         return str(self.__src)
@@ -71,7 +73,7 @@ def NowCoder(contest_id: int | str, cookie: str):
     def crawler(hacked_dir: Path):
         hacked_dir.mkdir(exist_ok=True)
 
-        submission_url = 'https://ac.nowcoder.com/acm/contest/view-submission?submissionId=' + id
+        submission_url = 'https://ac.nowcoder.com/acm/contest/view-submission?submissionId=' + hacked_dir.name
         res = get(submission_url, cookies={'t': cookie})
         soup = BeautifulSoup(res.text, 'html.parser')
 
@@ -112,21 +114,19 @@ def start_hack(input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Pat
         if out != result:
             break
 
-        in_file.unlink()
-        out_file.unlink()
-        res_file.unlink()
 
-
-def run_hack(input_file, std_file, hacked_file, hacked_dir):
+def run_hack(input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path):
     green(f'Hacking: {input_file} {std_file} {hacked_file}')
     try:
         start_hack(input_file, std_file, hacked_file, hacked_dir)
     except FunctionTimedOut:
         green(f"Accepted: {hacked_file}")
+        for data in hacked_dir.glob('1.*'):
+            data.unlink()
     except Exception as e:
-        red(f"Error occurred: {hacked_file} {e}")
+        red(f'Error occurred: {hacked_file} {e}')
     else:
-        red(f'Hack successfully: "{hacked_file}"')
+        red(f'Hack successfully: {hacked_file}')
 
 
 def process_submissions():
@@ -171,6 +171,12 @@ def rm_hacked_files():
             if dirs.is_dir():
                 shutil.rmtree(dirs)
 
+
+def rm_exe():
+    for exe in base_dir.rglob('*.exe'):
+        exe.unlink()
+
+
 if __name__ == "__main__":
-    NowCoder(82707, 'BD68172701F0DDCE982E12856DC560AB')
-    # process_submissions()
+    # NowCoder(82707, 'BD68172701F0DDCE982E12856DC560AB')
+    process_submissions()

@@ -1,27 +1,24 @@
-#include <iostream>
-
+#include<iostream>
+#include<vector>
 using namespace std;
+constexpr int N = 2e5 + 10;
 
-int main()
-{
+int main() {
+    cin.tie(nullptr)->sync_with_stdio(false);
     int n;
-    cin >> n;
-
-    int ans = 0, cnt = 0;
-
-    while(n --)
-    {
-        int m;
-        cin >> m;
-
-        if(m % 2)
-            cnt ++;
-        else
-            ans ++;
+    cin>>n;
+    vector<int> a(n);
+    int sum = 0;
+    int num[2]{};
+    for(int i=0; i<n; ++i) {
+        cin>>a[i];
+        sum += a[i];
+        num[a[i]%2]++;
     }
-
-    if(cnt % 2 == 0)
-        cout << ans + cnt / 2;
-    else
-        puts("-1");
+    if(sum%2 == 1) {
+        cout<<"-1\n";
+    }else {
+        cout<<num[0]+num[1]/2<<"\n";
+    }
+    return 0;
 }

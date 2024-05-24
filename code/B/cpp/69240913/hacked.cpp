@@ -1,6 +1,13 @@
-n = int(input())
-lst = map(int,input().split())
-s = 0
-for it in lst:
-    s = s + it
-print(max(0,s-50))
+#include <bits/stdc++.h>
+
+using namespace std ;
+
+int main()
+{
+    cin.tie(nullptr)->ios::sync_with_stdio(false) ;
+    
+    cout << 50 ;
+    
+    
+    return 0 ;
+}

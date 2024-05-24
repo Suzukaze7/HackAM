@@ -1,6 +1,12 @@
-n = int(input())
-lst = map(int,input().split())
-s = 0
-for it in lst:
-    s = s + it
-print(max(0,s-50))
+#include <iostream>
+using namespace std;
+int main(){
+    int n;cin>>n;
+    int need=0;
+    for(int i=0;i<n;i++){
+        int x;cin>>x;
+        need+=x;
+    }
+    cout<<max(0,need-50);
+    return 0;
+}
