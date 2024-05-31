@@ -1,3 +1,4 @@
+from io import TextIOWrapper
 import shutil
 import subprocess
 from concurrent.futures import Future, ThreadPoolExecutor, wait
@@ -36,6 +37,7 @@ class HackAM:
     def __init__(self, base_dir: str | Path = 'code', thread_count: int = cpu_count() - 3):
         self.__BASE_DIR: Path = Path(base_dir)
         self.__THREAD_COUNT: int = thread_count
+        self.__HACKED_LOG: Path = self.__BASE_DIR / 'hacked.log'
 
     def __del__(self):
         self.rm_exe()
@@ -51,39 +53,49 @@ class HackAM:
 
     @func_set_timeout(30)
     def __start_hack(self, input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path):
-        in_file: Path = hacked_dir / "1.in"
-        out_file: Path = hacked_dir / "1.out"
-        res_file: Path = hacked_dir / "1.result"
+        in_file: Path = hacked_dir / '1.in'
+        out_file: Path = hacked_dir / '1.out'
+        res_file: Path = hacked_dir / '1.result'
         while True:
             input_file.run(stdout=in_file.open(
                 'w', encoding='utf-8')).check_returncode()
 
             std_file.run(in_file.open('r', encoding='utf-8'),
-                         out_file.open("w", encoding='utf-8')).check_returncode()
+                         out_file.open('w', encoding='utf-8')).check_returncode()
 
             hacked_file.run(in_file.open('r', encoding='utf-8'),
-                            res_file.open("w", encoding='utf-8')).check_returncode()
+                            res_file.open('w', encoding='utf-8')).check_returncode()
 
-            with out_file.open("r", encoding='utf-8') as f:
+            with out_file.open('r', encoding='utf-8') as f:
                 out = [line.strip() for line in f.readlines()]
-            with res_file.open("r", encoding='utf-8') as f:
+            with res_file.open('r', encoding='utf-8') as f:
                 result = [line.strip() for line in f.readlines()]
 
             if out != result:
                 break
 
-    def __run_hack(self, input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path):
+    def __run_hack(self, input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path, f: TextIOWrapper):
+        hacked_flag = hacked_dir / 'hacked'
+        if hacked_flag.exists():
+            return
+
         self.__green(f'Hacking: {input_file} {std_file} {hacked_file}')
         try:
             self.__start_hack(input_file, std_file, hacked_file, hacked_dir)
         except FunctionTimedOut:
-            self.__green(f"Accepted: {hacked_file}")
+            self.__green(f'Accepted: {hacked_file}')
             for data in hacked_dir.glob('1.*'):
                 data.unlink()
         except Exception as e:
-            self.__red(f'Error occurred: {hacked_file} {e}')
+            s = f'Error occurred: {hacked_file} {e}'
+            self.__red(s)
+            print(f.write(s + '\n'))
         else:
-            self.__red(f'Hack successfully: {hacked_file}')
+            s = f'Hack successfully: {hacked_file}'
+            self.__red(s)
+            print(f.write(s + '\n'))
+
+        hacked_flag.touch()
 
     def __get_typed_path(self, dir: Path, name: str | Path) -> Path:
         path = (dir / name).with_suffix('.cpp')
@@ -95,7 +107,7 @@ class HackAM:
 
     def process_submission(self, table: Iterable, get_code: Callable[[str], None]):
         self.__BASE_DIR.mkdir(exist_ok=True)
-        with ThreadPoolExecutor(self.__THREAD_COUNT) as executor:
+        with ThreadPoolExecutor(self.__THREAD_COUNT) as executor, self.__HACKED_LOG.open('w+', encoding='utf-8') as log:
             res: list[Future] = []
             for problem_id, lang, submission_id in table():
                 problem_dir: Path = self.__BASE_DIR / problem_id
@@ -104,29 +116,29 @@ class HackAM:
                 hacked_file: Path = hacked_dir / f'hacked.{lang}'
 
                 hacked_dir.mkdir(exist_ok=True, parents=True)
-                with hacked_file.open('w', encoding='utf-8') as f:
-                    f.write(get_code(submission_id))
+                with hacked_file.open('w', encoding='utf-8') as log:
+                    log.write(get_code(submission_id))
 
                 # 尝试定义 input.cpp 文件路径
                 input_file = self.__get_typed_path(problem_dir, 'input')
                 if not input_file:
                     self.__yellow(
-                        f"No input files for {problem_dir.name}, skipping...")
+                        f'No input files for {problem_dir.name}, skipping...')
                     continue
 
                 # 尝试定义 std.cpp 文件路径
                 std_file = self.__get_typed_path(problem_dir, 'std')
                 if not std_file:
                     self.__yellow(
-                        f"No std files for {problem_dir.name}, skipping...")
+                        f'No std files for {problem_dir.name}, skipping...')
                     continue
 
-                input_file = Run(input_file)
-                std_file = Run(std_file)
-                hacked_file = Run(hacked_file)
+                input_file: Run = Run(input_file)
+                std_file: Run = Run(std_file)
+                hacked_file: Run = Run(hacked_file)
 
                 res.append(executor.submit(self.__run_hack,
-                           input_file, std_file, hacked_file, hacked_dir))
+                           input_file, std_file, hacked_file, hacked_dir, log))
 
             wait(res)
 
@@ -189,7 +201,8 @@ class HackAM:
 
         self.process_submission(table, get_code)
 
-    def rm_hacked_files(self):
+    def clear_hacked_files(self):
+        self.__HACKED_LOG.unlink(True)
         for x_path in self.__BASE_DIR.iterdir():
             for dirs in x_path.iterdir():
                 if dirs.is_dir():
@@ -200,8 +213,6 @@ class HackAM:
             exe.unlink()
 
 
-if __name__ == "__main__":
-    am = HackAM('cf')
-    # am.NowCoder(82707, 'A4965E404E764FB0596C7BE8B815FAEF')
-    am.Codeforces(1977, 'b848e4db925f899d2fb0b33c99c08005',
-                  '176B6491C720AB5BBB95BD6EF7E0AFA0')
+if __name__ == '__main__':
+    am = HackAM()
+    am.NowCoder(82707, 'A4965E404E764FB0596C7BE8B815FAEF')
