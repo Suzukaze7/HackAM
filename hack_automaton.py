@@ -16,7 +16,8 @@ class Run:
         self.__src: Path = Path(src)
         if self.__src.suffix == '.cpp':
             self.__dst = self.__src.with_suffix('.exe')
-            subprocess.run(['g++', '-std=c++17', self.__src, '-o', self.__dst])
+            subprocess.run(['g++', '-D', 'ONLINE_JUDGE',
+                           '-std=c++17', self.__src, '-o', self.__dst])
             self.__is_cpp = True
         else:
             self.__dst = self.__src
@@ -97,7 +98,7 @@ class Codeforces(TargetOJ):
         table_url = f'https://codeforces.com/api/contest.status?contestId={self.__CONTEST_ID}'
         json = get(table_url).json()
 
-        submissions = {}
+        table = {}
         for submission in json['result']:
             if 'verdict' not in submission or submission['verdict'] != 'OK':
                 continue
@@ -110,9 +111,9 @@ class Codeforces(TargetOJ):
             else:
                 continue
 
-            submissions.setdefault(submission['problem']['index'], {}).setdefault(
+            table.setdefault(submission['problem']['index'], {}).setdefault(
                 lang, []).append(submission['id'])
-        return submissions
+        return table
 
     def get_code(self, submission_id: int | str) -> str:
         submission_url = f'https://codeforces.com/data/submitSource?submissionId={submission_id}'
@@ -192,6 +193,9 @@ class HackAM:
                 return None
         return path
 
+    def __hacked_flag_wrap(self, hacked_flag: Path):
+        return lambda fut: hacked_flag.touch()
+
     def pull_and_hack(self):
         self.__BASE_DIR.mkdir(exist_ok=True)
         with ThreadPoolExecutor(self.__THREAD_COUNT) as executor, self.__HACKED_LOG.open('w+', encoding='utf-8') as log:
@@ -224,7 +228,7 @@ class HackAM:
                         hacked_file: Path = hacked_dir / f'hacked.{lang}'
                         hacked_flag: Path = hacked_dir / 'hacked'
 
-                        hacked_dir.mkdir(exist_ok=True, parents=True)
+                        hacked_dir.mkdir(exist_ok=True)
                         if hacked_flag.exists():
                             continue
 
@@ -235,7 +239,8 @@ class HackAM:
 
                         fut = executor.submit(
                             self.__run_hack, input_file, std_file, hacked_file, hacked_dir, log)
-                        fut.add_done_callback(lambda fut: hacked_flag.touch())
+                        fut.add_done_callback(
+                            self.__hacked_flag_wrap(hacked_flag))
                         res.append(fut)
 
                         sleep(5)
