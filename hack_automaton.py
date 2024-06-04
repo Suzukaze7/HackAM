@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
 from io import TextIOWrapper
 import shutil
-from string import ascii_uppercase
 import subprocess
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from multiprocessing import cpu_count
 from pathlib import Path
 from time import sleep
-from typing import Callable, Iterable
 from requests import get, post
 from bs4 import BeautifulSoup
 from func_timeout import FunctionTimedOut, func_set_timeout
@@ -178,14 +176,16 @@ class HackAM:
         except Exception as e:
             s = f'Error occurred: {hacked_file} {e}'
             self.__red(s)
-            print(log.write(s + '\n'))
+            log.write(s + '\n')
+            log.flush()
         else:
             s = f'Hack successfully: {hacked_file}'
             self.__red(s)
-            print(log.write(s + '\n'))
+            log.write(s + '\n')
+            log.flush()
 
     def __get_typed_path(self, dir: Path, name: str | Path) -> Path:
-        path = (dir / name).with_suffix('.cpp')
+        path: Path = dir / (name + '.cpp')
         if not path.exists():
             path = path.with_suffix('.py')
             if not path.exists():
@@ -220,9 +220,9 @@ class HackAM:
                     lang_dir.mkdir(exist_ok=True)
 
                     for sub_id in submission_ids:
-                        hacked_dir: Path = lang_dir / sub_id
+                        hacked_dir: Path = lang_dir / str(sub_id)
                         hacked_file: Path = hacked_dir / f'hacked.{lang}'
-                        hacked_flag: Path = lang_dir / 'hacked'
+                        hacked_flag: Path = hacked_dir / 'hacked'
 
                         hacked_dir.mkdir(exist_ok=True, parents=True)
                         if hacked_flag.exists():
@@ -235,10 +235,10 @@ class HackAM:
 
                         fut = executor.submit(
                             self.__run_hack, input_file, std_file, hacked_file, hacked_dir, log)
-                        fut.add_done_callback(lambda: hacked_flag.touch())
+                        fut.add_done_callback(lambda fut: hacked_flag.touch())
                         res.append(fut)
 
-                        sleep(10)
+                        sleep(5)
 
             wait(res)
 
@@ -254,3 +254,7 @@ if __name__ == '__main__':
     target_oj = Codeforces(
         1980, '3251904c450e2cb5aa111d1ad88e988a', '786BA1B9273A5AD099CF14AFB123E29D')
     am = HackAM(target_oj, 'cf')
+
+    # target_oj = NowCoder(82707, 'CA5B58A7304EC58A2445946E960293A0')
+    # am = HackAM(target_oj)
+    am.pull_and_hack()
