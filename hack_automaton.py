@@ -4,6 +4,7 @@ import subprocess
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from multiprocessing import cpu_count
 from pathlib import Path
+from time import sleep
 from typing import Callable, Iterable
 from requests import get, post
 from bs4 import BeautifulSoup
@@ -74,7 +75,7 @@ class HackAM:
             if out != result:
                 break
 
-    def __run_hack(self, input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path, f: TextIOWrapper):
+    def __run_hack(self, input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path, log: TextIOWrapper):
         hacked_flag = hacked_dir / 'hacked'
         if hacked_flag.exists():
             return
@@ -89,11 +90,11 @@ class HackAM:
         except Exception as e:
             s = f'Error occurred: {hacked_file} {e}'
             self.__red(s)
-            print(f.write(s + '\n'))
+            print(log.write(s + '\n'))
         else:
             s = f'Hack successfully: {hacked_file}'
             self.__red(s)
-            print(f.write(s + '\n'))
+            print(log.write(s + '\n'))
 
         hacked_flag.touch()
 
@@ -115,10 +116,6 @@ class HackAM:
                 hacked_dir: Path = lang_dir / submission_id
                 hacked_file: Path = hacked_dir / f'hacked.{lang}'
 
-                hacked_dir.mkdir(exist_ok=True, parents=True)
-                with hacked_file.open('w', encoding='utf-8') as log:
-                    log.write(get_code(submission_id))
-
                 # 尝试定义 input.cpp 文件路径
                 input_file = self.__get_typed_path(problem_dir, 'input')
                 if not input_file:
@@ -133,6 +130,10 @@ class HackAM:
                         f'No std files for {problem_dir.name}, skipping...')
                     continue
 
+                hacked_dir.mkdir(exist_ok=True, parents=True)
+                with hacked_file.open('w', encoding='utf-8') as f:
+                    f.write(get_code(submission_id))
+
                 input_file: Run = Run(input_file)
                 std_file: Run = Run(std_file)
                 hacked_file: Run = Run(hacked_file)
@@ -140,9 +141,15 @@ class HackAM:
                 res.append(executor.submit(self.__run_hack,
                            input_file, std_file, hacked_file, hacked_dir, log))
 
+                sleep(10)
+
             wait(res)
 
     def NowCoder(self, contest_id: int | str, t: str):
+        """
+        t: 在 cookie 中，可以浏览器 url 左边，也可以在 F12 中找
+        """
+
         def table():
             table_url = f'https://ac.nowcoder.com/acm-heavy/acm/contest/status-list?statusTypeFilter=5&id={contest_id}&page='
             json = get(table_url).json()
@@ -170,6 +177,11 @@ class HackAM:
         self.process_submission(table, get_code)
 
     def Codeforces(self, contest_id: int | str, csrf_token: str, jsession_id: str):
+        """
+        csrf_token: 按 F12 打开开发者工具，选择网络->打开一个提交->找到 submitSource 包 -> 负载
+        jsession_id: 在 cookie 中，可以浏览器 url 左边，也可以在 F12 中找
+        """
+
         def table():
             table_url = f'https://codeforces.com/api/contest.status?contestId={contest_id}'
             json = get(table_url).json()
