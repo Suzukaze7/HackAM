@@ -23,10 +23,6 @@ class Run:
             self.__dst = self.__src
             self.__is_cpp = False
 
-    def __del__(self):
-        if self.__is_cpp:
-            self.__dst.unlink()
-
     def __str__(self):
         return str(self.__src)
 
@@ -133,6 +129,9 @@ class HackAM:
         self.__BASE_DIR: Path = Path(base_dir)
         self.__THREAD_COUNT: int = thread_count
         self.__HACKED_LOG: Path = self.__BASE_DIR / 'hacked.log'
+
+    def __del__(self):
+        self.clear_exe()
 
     def __red(self, s):
         print('\033[91m', s, '\033[0m', sep='')
@@ -253,6 +252,15 @@ class HackAM:
             for dirs in x_path.iterdir():
                 if dirs.is_dir():
                     shutil.rmtree(dirs)
+
+    def clear_hacked_flags(self):
+        self.__HACKED_LOG.unlink(True)
+        for hacked_flag in self.__BASE_DIR.rglob('hacked'):
+            hacked_flag.unlink()
+
+    def clear_exe(self):
+        for exe in self.__BASE_DIR.rglob('*.exe'):
+            exe.unlink()
 
 
 if __name__ == '__main__':
