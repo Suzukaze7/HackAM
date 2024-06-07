@@ -1,14 +1,32 @@
 from abc import ABC, abstractmethod
+from functools import reduce
 from io import TextIOWrapper
+from operator import add
 import shutil
 import subprocess
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from multiprocessing import cpu_count
 from pathlib import Path
 from time import sleep
-from requests import get, post
+from typing import Callable
+import colorama
 from bs4 import BeautifulSoup
 from func_timeout import FunctionTimedOut, func_set_timeout
+import requests
+
+colorama.init(True)
+
+
+def red(s):
+    print(colorama.Fore.RED + s)
+
+
+def green(s):
+    print(colorama.Fore.GREEN + s)
+
+
+def yellow(s):
+    print(colorama.Fore.YELLOW + s)
 
 
 class Run:
@@ -28,9 +46,9 @@ class Run:
 
     def run(self, stdin=None, stdout=None, timeout=None) -> subprocess.CompletedProcess:
         if self.__is_cpp:
-            return subprocess.run(self.__dst, stdin=stdin, stdout=stdout, timeout=timeout, check=True, encoding='utf-8')
+            return subprocess.run(self.__dst, stdin=stdin, stdout=stdout, timeout=timeout, stderr=subprocess.DEVNULL, check=True, encoding='utf-8')
         else:
-            return subprocess.run(['python', self.__dst], stdin=stdin, stdout=stdout, timeout=timeout, check=True, encoding='utf-8')
+            return subprocess.run(['python', self.__dst], stdin=stdin, stdout=stdout, stderr=subprocess.DEVNULL, timeout=timeout, check=True, encoding='utf-8')
 
 
 class TargetOJ(ABC):
@@ -39,8 +57,16 @@ class TargetOJ(ABC):
         pass
 
     @abstractmethod
-    def get_code(submission_id: int | str) -> str:
+    def get_code(self, submission_id: int | str) -> str:
         pass
+
+    def __cyclin_request(self, err_msg: str, request: Callable[..., requests.Response], *args, **kwargs) -> requests.Response:
+        while True:
+            res = request(*args, **kwargs)
+            if res.ok:
+                return res
+            yellow(f'{err_msg} {res.reason}, wait for 15s')
+            sleep(15)
 
 
 class NowCoder(TargetOJ):
@@ -53,13 +79,14 @@ class NowCoder(TargetOJ):
 
     def get_table(self) -> dict[str, dict[str, list[int | str]]]:
         table_url = f'https://ac.nowcoder.com/acm-heavy/acm/contest/status-list?statusTypeFilter=5&id={self.__CONTEST_ID}&page='
-        json = get(table_url).json()
+        json = self.__cyclin_request(
+            'get nowcoder all submission id', requests.get, table_url)
         page_cnt = json['data']['basicInfo']['pageCount']
 
         table = {}
         for i in range(page_cnt):
             cur_url = table_url + str(i + 1)
-            json = get(cur_url).json()
+            json = requests.get(cur_url).json()
             for submission in json['data']['data']:
                 lang = submission['languageCategoryName']
                 if lang == 'C++':
@@ -74,7 +101,8 @@ class NowCoder(TargetOJ):
 
     def get_code(self, submission_id: int | str) -> str:
         submission_url = f'https://ac.nowcoder.com/acm/contest/view-submission?submissionId={submission_id}'
-        res = get(submission_url, cookies={'t': self.__t})
+        res = self.__cyclin_request(
+            f'get nowcoder {submission_id} submission code', requests.get, submission_url, cookies={'t': self.__t})
         soup = BeautifulSoup(res.text, 'html.parser')
         return soup.find('pre').text
 
@@ -92,7 +120,8 @@ class Codeforces(TargetOJ):
 
     def get_table(self) -> dict[str, dict[str, list[int | str]]]:
         table_url = f'https://codeforces.com/api/contest.status?contestId={self.__CONTEST_ID}'
-        json = get(table_url).json()
+        json = self.__cyclin_request(
+            'get codeforces all submission id', requests.get, table_url).json()
 
         table = {}
         for submission in json['result']:
@@ -119,7 +148,8 @@ class Codeforces(TargetOJ):
             'cookie': f'JSESSIONID={self.__JSESSION_ID}',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
         }
-        res = post(submission_url, headers=header).json()
+        res = self.__cyclin_request(
+            f'get codeforces {submission_id} submission code', requests.post, submission_url, headers=header).json()
         return res['source']
 
 
@@ -128,19 +158,10 @@ class HackAM:
         self.__TARGET_OJ = target_oj
         self.__BASE_DIR: Path = Path(base_dir)
         self.__THREAD_COUNT: int = thread_count
-        self.__HACKED_LOG: Path = self.__BASE_DIR / 'hacked.log'
+        self.__HACKED_LOG: Path = self.__BASE_DIR / 'hack.log'
 
     def __del__(self):
         self.clear_exe()
-
-    def __red(self, s):
-        print('\033[91m', s, '\033[0m', sep='')
-
-    def __green(self, s):
-        print('\033[32m', s, '\033[0m', sep='')
-
-    def __yellow(self, s):
-        print('\033[33m', s, '\033[0m', sep='')
 
     @func_set_timeout(30)
     def __start_hack(self, input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path):
@@ -158,29 +179,29 @@ class HackAM:
                             res_file.open('w', encoding='utf-8')).check_returncode()
 
             with out_file.open('r', encoding='utf-8') as f:
-                out = [line.strip() for line in f.readlines()]
+                out = reduce(add, map(lambda s: s.split(), f.readlines()))
             with res_file.open('r', encoding='utf-8') as f:
-                result = [line.strip() for line in f.readlines()]
+                result = reduce(add, map(lambda s: s.split(), f.readlines()))
 
             if out != result:
                 break
 
     def __run_hack(self, input_file: Run, std_file: Run, hacked_file: Run, hacked_dir: Path, log: TextIOWrapper):
-        self.__green(f'Hacking: {input_file} {std_file} {hacked_file}')
+        green(f'Hacking: {input_file} {std_file} {hacked_file}')
         try:
             self.__start_hack(input_file, std_file, hacked_file, hacked_dir)
         except FunctionTimedOut:
-            self.__green(f'Accepted: {hacked_file}')
+            green(f'Accepted: {hacked_file}')
             for data in hacked_dir.glob('1.*'):
                 data.unlink()
         except Exception as e:
             s = f'Error occurred: {hacked_file} {e}'
-            self.__red(s)
+            red(s)
             log.write(s + '\n')
             log.flush()
         else:
             s = f'Hack successfully: {hacked_file}'
-            self.__red(s)
+            red(s)
             log.write(s + '\n')
             log.flush()
 
@@ -204,14 +225,14 @@ class HackAM:
                 problem_dir.mkdir(exist_ok=True)
 
                 input_file = self.__get_typed_path(problem_dir, 'input')
-                if not input_file:
-                    self.__yellow(
+                if input_file is None:
+                    yellow(
                         f'No input files for {problem_dir.name}, skipping...')
                     continue
 
                 std_file = self.__get_typed_path(problem_dir, 'std')
-                if not std_file:
-                    self.__yellow(
+                if std_file is None:
+                    yellow(
                         f'No std files for {problem_dir.name}, skipping...')
                     continue
 
@@ -265,9 +286,9 @@ class HackAM:
 
 if __name__ == '__main__':
     target_oj = Codeforces(
-        1980, '3251904c450e2cb5aa111d1ad88e988a', '786BA1B9273A5AD099CF14AFB123E29D')
+        1979, '3251904c450e2cb5aa111d1ad88e988a', '786BA1B9273A5AD099CF14AFB123E29D')
     am = HackAM(target_oj, 'cf')
 
     # target_oj = NowCoder(82707, 'CA5B58A7304EC58A2445946E960293A0')
-    # am = HackAM(target_oj)
+    am = HackAM(target_oj)
     am.pull_and_hack()
