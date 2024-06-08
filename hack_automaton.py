@@ -8,11 +8,12 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from multiprocessing import cpu_count
 from pathlib import Path
 from time import sleep
-from typing import Callable
+from typing import Callable, Iterable, Mapping, Self
 import colorama
 from bs4 import BeautifulSoup
 from func_timeout import FunctionTimedOut, func_set_timeout
 import requests
+import sqlite3
 
 colorama.init(True)
 
@@ -30,117 +31,121 @@ def yellow(s):
 
 
 class Run:
-    def __init__(self, src: str | Path):
-        self.__src: Path = Path(src)
-        if self.__src.suffix == '.cpp':
-            self.__dst = self.__src.with_suffix('.exe')
-            subprocess.run(['g++', '-D', 'ONLINE_JUDGE',
-                           '-std=c++17', self.__src, '-o', self.__dst])
-            self.__is_cpp = True
-        else:
-            self.__dst = self.__src
-            self.__is_cpp = False
+    def __init__(self, src: str | Path, lang: str=None):
+        self.__SRC: Path = Path(src)
+        if not lang:
+            lang = self.__SRC.suffix
+        self.__LANG: str = lang
+        if self.__LANG.startswith('cpp'):
+            self.__DST = self.__SRC.with_suffix('.exe')
+            if self.__LANG.endswith('17'):
+                subprocess.run(['g++', '-DONLINE_JUDGE', '-std=c++17',
+                               self.__SRC, '-o', self.__DST], stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(['g++', '-DONLINE_JUDGE', '-std=c++20',
+                               self.__SRC, '-o', self.__DST], stderr=subprocess.DEVNULL)
 
     def __str__(self):
-        return str(self.__src)
+        return str(self.__SRC)
 
     def run(self, stdin=None, stdout=None, timeout=None) -> subprocess.CompletedProcess:
-        if self.__is_cpp:
-            return subprocess.run(self.__dst, stdin=stdin, stdout=stdout, timeout=timeout, stderr=subprocess.DEVNULL, check=True, encoding='utf-8')
+        if self.__LANG.startswith('cpp'):
+            return subprocess.run(self.__DST, stdin=stdin, stdout=stdout, stderr=subprocess.DEVNULL, timeout=timeout, check=True, encoding='utf-8')
         else:
-            return subprocess.run(['python', self.__dst], stdin=stdin, stdout=stdout, stderr=subprocess.DEVNULL, timeout=timeout, check=True, encoding='utf-8')
+            return subprocess.run(['python', self.__SRC], stdin=stdin, stdout=stdout, stderr=subprocess.DEVNULL, timeout=timeout, check=True, encoding='utf-8')
 
 
 class TargetOJ(ABC):
     @abstractmethod
-    def get_table(self) -> dict[str, dict[str, list[int | str]]]:
+    def get_submissions(self) -> Mapping[str, Iterable[tuple[int, str, int]]]:
         pass
 
     @abstractmethod
-    def get_code(self, submission_id: int | str) -> str:
+    def get_code(self, sub_id: int) -> str:
         pass
 
-    def __cyclin_request(self, err_msg: str, request: Callable[..., requests.Response], *args, **kwargs) -> requests.Response:
+    def _cyclin_request(self, err_msg: str, request: Callable[..., requests.Response], *args, **kwargs) -> requests.Response:
         while True:
             res = request(*args, **kwargs)
             if res.ok:
                 return res
-            yellow(f'{err_msg} {res.reason}, wait for 15s')
-            sleep(15)
+            yellow(f'{err_msg} {res.reason}, wait for 30s')
+            sleep(30)
 
 
 class NowCoder(TargetOJ):
-    def __init__(self, contest_id: int | str, t: str):
-        """
+    def __init__(self, contest_id: int, t: str):
+        '''
         t: 在 cookie 中，可以浏览器 url 左边，也可以在 F12 中找
-        """
+        '''
         self.__CONTEST_ID = contest_id
-        self.__t = t
+        self.__T = t
 
-    def get_table(self) -> dict[str, dict[str, list[int | str]]]:
+    def get_submissions(self) -> Mapping[str, Iterable[tuple[int, str, int]]]:
         table_url = f'https://ac.nowcoder.com/acm-heavy/acm/contest/status-list?statusTypeFilter=5&id={self.__CONTEST_ID}&page='
-        json = self.__cyclin_request(
-            'get nowcoder all submission id', requests.get, table_url)
+        json = self._cyclin_request(
+            'get nowcoder all submission id', requests.get, table_url).json()
         page_cnt = json['data']['basicInfo']['pageCount']
 
-        table = {}
+        subs = {}
         for i in range(page_cnt):
             cur_url = table_url + str(i + 1)
             json = requests.get(cur_url).json()
             for submission in json['data']['data']:
-                lang = submission['languageCategoryName']
+                lang: str = submission['languageCategoryName']
+                sub: tuple = (submission['submissionId'])
                 if lang == 'C++':
-                    lang = 'cpp'
+                    sub += ('cpp', 17)
                 elif lang == 'Python3' or lang == 'PyPy3':
-                    lang = 'py'
+                    sub = ('py')
                 else:
                     continue
-                table.setdefault(submission['index'], {}).setdefault(
-                    lang, []).append(submission['submissionId'])
-        return table
+                subs.setdefault(submission['index'], []).append(sub)
+        return subs
 
-    def get_code(self, submission_id: int | str) -> str:
+    def get_code(self, submission_id: int) -> str:
         submission_url = f'https://ac.nowcoder.com/acm/contest/view-submission?submissionId={submission_id}'
-        res = self.__cyclin_request(
-            f'get nowcoder {submission_id} submission code', requests.get, submission_url, cookies={'t': self.__t})
+        res = self._cyclin_request(
+            f'get nowcoder {submission_id} submission code', requests.get, submission_url, cookies={'t': self.__T})
         soup = BeautifulSoup(res.text, 'html.parser')
-        return soup.find('pre').text
+        return soup.find('pre').get_text()
 
 
 class Codeforces(TargetOJ):
-    def __init__(self, contest_id: int | str, csrf_token: str, jsession_id: str):
-        """
+    def __init__(self, contest_id: int, csrf_token: str, jsession_id: str):
+        '''
         csrf_token: 按 F12 打开开发者工具，选择网络->打开一个提交->找到 submitSource 包 -> 负载
 
         jsession_id: 在 cookie 中，可以浏览器 url 左边，也可以在 F12 中找
-        """
+        '''
+        super().__init__()
         self.__CONTEST_ID = contest_id
         self.__CSRF_TOKEN = csrf_token
         self.__JSESSION_ID = jsession_id
 
-    def get_table(self) -> dict[str, dict[str, list[int | str]]]:
+    def get_submissions(self):
         table_url = f'https://codeforces.com/api/contest.status?contestId={self.__CONTEST_ID}'
-        json = self.__cyclin_request(
+        json = self._cyclin_request(
             'get codeforces all submission id', requests.get, table_url).json()
 
-        table = {}
+        subs = {}
         for submission in json['result']:
             if 'verdict' not in submission or submission['verdict'] != 'OK':
                 continue
 
             lang: str = submission['programmingLanguage']
+            sub: tuple = ((submission['id']))
             if lang.startswith('C++'):
-                lang = 'cpp'
+                sub += ('cpp', int(lang[3:5]))
             elif lang.startswith(('Python', 'PyPy')):
-                lang = 'py'
+                sub += ('py')
             else:
                 continue
 
-            table.setdefault(submission['problem']['index'], {}).setdefault(
-                lang, []).append(submission['id'])
-        return table
+            subs.setdefault(submission['problem']['index'], []).append(sub)
+        return subs
 
-    def get_code(self, submission_id: int | str) -> str:
+    def get_code(self, submission_id: int) -> str:
         submission_url = f'https://codeforces.com/data/submitSource?submissionId={submission_id}'
         header = {
             'Referer': f'https://codeforces.com/contest/{self.__CONTEST_ID}/status',
@@ -148,17 +153,54 @@ class Codeforces(TargetOJ):
             'cookie': f'JSESSIONID={self.__JSESSION_ID}',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
         }
-        res = self.__cyclin_request(
+        res = self._cyclin_request(
             f'get codeforces {submission_id} submission code', requests.post, submission_url, headers=header).json()
         return res['source']
 
 
+class SqliteWrapper:
+    def __init__(self, base_dir: Path):
+        self.__DB: Path = base_dir / 'hack.db'
+
+    def __enter__(self) -> Self:
+        self.__conn = sqlite3.connect(self.__DB, isolation_level=None)
+        self.__cur = self.__conn.cursor()
+        self.__cur.execute('''CREATE TABLE IF NOT EXISTS hack (
+                            sub_id INTEGER PRIMARY KEY,
+                            lang TEXT,
+                            hacked INTEGER
+                        ) WITHOUT ROWID''')
+        return self
+
+    def __exit__(self):
+        self.__cur.close()
+        self.__conn.close()
+
+    def get_field(self, sub_id: int) -> dict:
+        self.__cur.execute('SELECT * FROM hack where sub_id = ?', (sub_id))
+        res = self.__cur.fetchone()
+        if not res:
+            return {}
+        return {
+            'lang': (res[1], res[2]),
+            'hacked': res[3]
+        }
+
+    def add_field(self, sub_id: int, lang: str):
+        self.__cur.execute(
+            'INSERT INTO hack VALUSE (?, ?, FALSE)', (sub_id, lang))
+
+    def update_field(self, sub_id: int):
+        self.__cur.execute(
+            'UPDATE hack SET hacked = TRUE where sub_id = ?', (sub_id))
+
+
 class HackAM:
-    def __init__(self, target_oj: TargetOJ, base_dir: str | Path = 'code', thread_count: int = cpu_count() - 3):
+    def __init__(self, target_oj: TargetOJ, base_dir: str = 'hack', thread_count: int = cpu_count()):
         self.__TARGET_OJ = target_oj
-        self.__BASE_DIR: Path = Path(base_dir)
-        self.__THREAD_COUNT: int = thread_count
-        self.__HACKED_LOG: Path = self.__BASE_DIR / 'hack.log'
+        self.__BASE_DIR = Path(base_dir)
+        self.__THREAD_COUNT = thread_count
+        self.__LOG: Path = self.__BASE_DIR / 'hack.log'
 
     def __del__(self):
         self.clear_exe()
@@ -169,14 +211,11 @@ class HackAM:
         out_file: Path = hacked_dir / '1.out'
         res_file: Path = hacked_dir / '1.result'
         while True:
-            input_file.run(stdout=in_file.open(
-                'w', encoding='utf-8')).check_returncode()
-
+            input_file.run(stdout=in_file.open('w', encoding='utf-8'))
             std_file.run(in_file.open('r', encoding='utf-8'),
-                         out_file.open('w', encoding='utf-8')).check_returncode()
-
+                         out_file.open('w', encoding='utf-8'))
             hacked_file.run(in_file.open('r', encoding='utf-8'),
-                            res_file.open('w', encoding='utf-8')).check_returncode()
+                            res_file.open('w', encoding='utf-8'))
 
             with out_file.open('r', encoding='utf-8') as f:
                 out = reduce(add, map(lambda s: s.split(), f.readlines()))
@@ -205,7 +244,7 @@ class HackAM:
             log.write(s + '\n')
             log.flush()
 
-    def __get_typed_path(self, dir: Path, name: str | Path) -> Path:
+    def __get_typed_path(self, dir: Path, name: str) -> Path:
         path: Path = dir / (name + '.cpp')
         if not path.exists():
             path = path.with_suffix('.py')
@@ -213,82 +252,72 @@ class HackAM:
                 return None
         return path
 
-    def __hacked_flag_wrap(self, hacked_flag: Path):
-        return lambda fut: hacked_flag.touch()
+    def __hacked_flag_wrap(self, sql: SqliteWrapper, sub_id: int) -> Callable[[Future], None]:
+        return lambda fut: sql.update_field(sub_id)
 
-    def pull_and_hack(self):
+    def get_and_hack(self):
         self.__BASE_DIR.mkdir(exist_ok=True)
-        with ThreadPoolExecutor(self.__THREAD_COUNT) as executor, self.__HACKED_LOG.open('w+', encoding='utf-8') as log:
+
+        with ThreadPoolExecutor(self.__THREAD_COUNT) as executor, SqliteWrapper(self.__BASE_DIR) as sql, self.__LOG.open('w+', encoding='utf-8') as log:
             res: list[Future] = []
-            for problem_id, sub_dict in self.__TARGET_OJ.get_table().items():
-                problem_dir: Path = self.__BASE_DIR / problem_id
-                problem_dir.mkdir(exist_ok=True)
+            for prob_id, subs in self.__TARGET_OJ.get_submissions().items():
+                prob_dir: Path = self.__BASE_DIR / prob_id
+                prob_dir.mkdir(exist_ok=True)
 
-                input_file = self.__get_typed_path(problem_dir, 'input')
-                if input_file is None:
+                input_file = self.__get_typed_path(prob_dir, 'input')
+                if not input_file:
                     yellow(
-                        f'No input files for {problem_dir.name}, skipping...')
+                        f'No input files for {prob_dir.name}, skipping...')
                     continue
 
-                std_file = self.__get_typed_path(problem_dir, 'std')
-                if std_file is None:
+                std_file = self.__get_typed_path(prob_dir, 'std')
+                if not std_file:
                     yellow(
-                        f'No std files for {problem_dir.name}, skipping...')
+                        f'No std files for {prob_dir.name}, skipping...')
                     continue
 
-                input_file: Run = Run(input_file)
-                std_file: Run = Run(std_file)
+                input_file = Run(input_file)
+                std_file = Run(std_file)
 
-                for lang, submission_ids in sub_dict.items():
-                    lang_dir: Path = problem_dir / lang
-                    lang_dir.mkdir(exist_ok=True)
+                sub_dir: Path = prob_dir / 'submissions'
+                for sub_id, *lang in subs:
+                    sub_dir: Path = sub_dir / str(sub_id)
+                    hacked_file: Path = sub_dir / f'hacked.{lang[0]}'
+                    lang = ''.join(lang)
 
-                    for sub_id in submission_ids:
-                        hacked_dir: Path = lang_dir / str(sub_id)
-                        hacked_file: Path = hacked_dir / f'hacked.{lang}'
-                        hacked_flag: Path = hacked_dir / 'hacked'
+                    sql_res = sql.get_field(sub_id)
+                    if sql_res['hacked']:
+                        continue
 
-                        hacked_dir.mkdir(exist_ok=True)
-                        if hacked_flag.exists():
-                            continue
-
+                    if sql_res['gotten'] is None:
+                        sub_dir.mkdir(exist_ok=True)
                         with hacked_file.open('w', encoding='utf-8') as f:
                             f.write(self.__TARGET_OJ.get_code(sub_id))
+                        sql.add_field(sub_id, lang)
 
-                        hacked_file: Run = Run(hacked_file)
+                    hacked_file = Run(hacked_file)
 
-                        fut = executor.submit(
-                            self.__run_hack, input_file, std_file, hacked_file, hacked_dir, log)
-                        fut.add_done_callback(
-                            self.__hacked_flag_wrap(hacked_flag))
-                        res.append(fut)
+                    fut = executor.submit(
+                        self.__run_hack, input_file, std_file, hacked_file, sub_dir, log)
+                    fut.add_done_callback(self.__hacked_flag_wrap(sql, sub_id))
+                    res.append(fut)
 
-                        sleep(5)
+                    sleep(10)
 
             wait(res)
 
     def clear_hacked_files(self):
-        self.__HACKED_LOG.unlink(True)
+        self.__LOG.unlink(True)
         for x_path in self.__BASE_DIR.iterdir():
             for dirs in x_path.iterdir():
                 if dirs.is_dir():
                     shutil.rmtree(dirs)
 
     def clear_hacked_flags(self):
-        self.__HACKED_LOG.unlink(True)
+        self.__LOG.unlink(True)
         for hacked_flag in self.__BASE_DIR.rglob('hacked'):
             hacked_flag.unlink()
 
     def clear_exe(self):
         for exe in self.__BASE_DIR.rglob('*.exe'):
             exe.unlink()
-
-
-if __name__ == '__main__':
-    target_oj = Codeforces(
-        1979, '3251904c450e2cb5aa111d1ad88e988a', '786BA1B9273A5AD099CF14AFB123E29D')
-    am = HackAM(target_oj, 'cf')
-
-    # target_oj = NowCoder(82707, 'CA5B58A7304EC58A2445946E960293A0')
-    am = HackAM(target_oj)
-    am.pull_and_hack()
