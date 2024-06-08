@@ -31,19 +31,21 @@ def yellow(s):
 
 
 class Run:
-    def __init__(self, src: str | Path, lang: str=None):
+    def __init__(self, src: str | Path, lang: str = None):
         self.__SRC: Path = Path(src)
+
         if not lang:
-            lang = self.__SRC.suffix
+            DFT = {
+                'cpp': 'cpp17',
+                'py': 'py'
+            }
+            lang = DFT[self.__SRC.suffix]
+
         self.__LANG: str = lang
-        if self.__LANG.startswith('cpp'):
+        if lang.startswith('cpp'):
             self.__DST = self.__SRC.with_suffix('.exe')
-            if self.__LANG.endswith('17'):
-                subprocess.run(['g++', '-DONLINE_JUDGE', '-std=c++17',
-                               self.__SRC, '-o', self.__DST], stderr=subprocess.DEVNULL)
-            else:
-                subprocess.run(['g++', '-DONLINE_JUDGE', '-std=c++20',
-                               self.__SRC, '-o', self.__DST], stderr=subprocess.DEVNULL)
+            subprocess.run(['g++', '-DONLINE_JUDGE', f'-std=c++{lang[3:]}',
+                            self.__SRC, '-o', self.__DST], stderr=subprocess.DEVNULL)
 
     def __str__(self):
         return str(self.__SRC)
@@ -190,9 +192,9 @@ class SqliteWrapper:
         self.__cur.execute(
             'INSERT INTO hack VALUSE (?, ?, FALSE)', (sub_id, lang))
 
-    def update_field(self, sub_id: int):
+    def update_field(self, sub_id: int, hacked: bool = True):
         self.__cur.execute(
-            'UPDATE hack SET hacked = TRUE where sub_id = ?', (sub_id))
+            'UPDATE hack SET hacked = ? where sub_id = ?', (hacked, sub_id))
 
 
 class HackAM:
