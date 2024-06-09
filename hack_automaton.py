@@ -8,7 +8,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from multiprocessing import cpu_count
 from pathlib import Path
 from time import sleep
-from typing import Callable, Iterable, Mapping, Self
+from typing import Callable, Self
 import colorama
 from bs4 import BeautifulSoup
 from func_timeout import FunctionTimedOut, func_set_timeout
@@ -36,8 +36,8 @@ class Run:
 
         if not lang:
             DFT = {
-                'cpp': 'cpp17',
-                'py': 'py'
+                '.cpp': 'cpp17',
+                '.py': 'py'
             }
             lang = DFT[self.__SRC.suffix]
 
@@ -59,7 +59,7 @@ class Run:
 
 class TargetOJ(ABC):
     @abstractmethod
-    def get_submissions(self) -> Mapping[str, Iterable[tuple[int, str, int]]]:
+    def get_submissions(self) -> dict[str, list[tuple[int, str, int]]]:
         pass
 
     @abstractmethod
@@ -83,7 +83,7 @@ class NowCoder(TargetOJ):
         self.__CONTEST_ID = contest_id
         self.__T = t
 
-    def get_submissions(self) -> Mapping[str, Iterable[tuple[int, str, int]]]:
+    def get_submissions(self) -> dict[str, list[tuple[int, str, int]]]:
         table_url = f'https://ac.nowcoder.com/acm-heavy/acm/contest/status-list?statusTypeFilter=5&id={self.__CONTEST_ID}&page='
         json = self._cyclin_request(
             'get nowcoder all submission id', requests.get, table_url).json()
@@ -95,11 +95,11 @@ class NowCoder(TargetOJ):
             json = requests.get(cur_url).json()
             for submission in json['data']['data']:
                 lang: str = submission['languageCategoryName']
-                sub: tuple = (submission['submissionId'])
+                sub: tuple = (submission['submissionId'],)
                 if lang == 'C++':
                     sub += ('cpp', 17)
                 elif lang == 'Python3' or lang == 'PyPy3':
-                    sub = ('py')
+                    sub = ('py',)
                 else:
                     continue
                 subs.setdefault(submission['index'], []).append(sub)
@@ -125,7 +125,7 @@ class Codeforces(TargetOJ):
         self.__CSRF_TOKEN = csrf_token
         self.__JSESSION_ID = jsession_id
 
-    def get_submissions(self):
+    def get_submissions(self) -> dict[str, list[tuple[int, str, int]]]:
         table_url = f'https://codeforces.com/api/contest.status?contestId={self.__CONTEST_ID}'
         json = self._cyclin_request(
             'get codeforces all submission id', requests.get, table_url).json()
@@ -136,11 +136,11 @@ class Codeforces(TargetOJ):
                 continue
 
             lang: str = submission['programmingLanguage']
-            sub: tuple = ((submission['id']))
+            sub: tuple = (submission['id'],)
             if lang.startswith('C++'):
                 sub += ('cpp', int(lang[3:5]))
             elif lang.startswith(('Python', 'PyPy')):
-                sub += ('py')
+                sub += ('py',)
             else:
                 continue
 
@@ -157,15 +157,27 @@ class Codeforces(TargetOJ):
         }
         res = self._cyclin_request(
             f'get codeforces {submission_id} submission code', requests.post, submission_url, headers=header).json()
-        return res['source']
+        return res['source'].replace('\r', '')
 
 
 class SqliteWrapper:
-    def __init__(self, base_dir: Path):
-        self.__DB: Path = base_dir / 'hack.db'
+    class Field:
+        def __init__(self, field: tuple | None):
+            if not field:
+                self.exists = False
+                self.lang = None
+                self.hacked = False
+            else:
+                self.exists = True
+                self.lang = field[1]
+                self.hacked = field[2]
+
+    def __init__(self, db: Path):
+        self.__DB: Path = db
 
     def __enter__(self) -> Self:
-        self.__conn = sqlite3.connect(self.__DB, isolation_level=None)
+        self.__conn = sqlite3.connect(
+            self.__DB, isolation_level=None, check_same_thread=False)
         self.__cur = self.__conn.cursor()
         self.__cur.execute('''CREATE TABLE IF NOT EXISTS hack (
                             sub_id INTEGER PRIMARY KEY,
@@ -174,27 +186,24 @@ class SqliteWrapper:
                         ) WITHOUT ROWID''')
         return self
 
-    def __exit__(self):
+    def __exit__(self, type, value, tb):
         self.__cur.close()
         self.__conn.close()
 
-    def get_field(self, sub_id: int) -> dict:
-        self.__cur.execute('SELECT * FROM hack where sub_id = ?', (sub_id))
-        res = self.__cur.fetchone()
-        if not res:
-            return {}
-        return {
-            'lang': (res[1], res[2]),
-            'hacked': res[3]
-        }
+    def get(self, sub_id: int) -> Field:
+        self.__cur.execute('SELECT * FROM hack where sub_id = ?', (sub_id,))
+        return self.Field(self.__cur.fetchone())
 
-    def add_field(self, sub_id: int, lang: str):
+    def add(self, sub_id: int, lang: str):
         self.__cur.execute(
-            'INSERT INTO hack VALUSE (?, ?, FALSE)', (sub_id, lang))
+            'INSERT INTO hack VALUES (?, ?, FALSE)', (sub_id, lang))
 
-    def update_field(self, sub_id: int, hacked: bool = True):
-        self.__cur.execute(
-            'UPDATE hack SET hacked = ? where sub_id = ?', (hacked, sub_id))
+    def update(self, sub_id: int = -1, hacked: bool = True):
+        if sub_id == -1:
+            self.__cur.execute('UPDATE hack SET hacked = ?', (hacked,))
+        else:
+            self.__cur.execute(
+                'UPDATE hack SET hacked = ? where sub_id = ?', (hacked, sub_id))
 
 
 class HackAM:
@@ -203,6 +212,7 @@ class HackAM:
         self.__BASE_DIR = Path(base_dir)
         self.__THREAD_COUNT = thread_count
         self.__LOG: Path = self.__BASE_DIR / 'hack.log'
+        self.__DB: Path = self.__BASE_DIR / 'hack.db'
 
     def __del__(self):
         self.clear_exe()
@@ -255,12 +265,11 @@ class HackAM:
         return path
 
     def __hacked_flag_wrap(self, sql: SqliteWrapper, sub_id: int) -> Callable[[Future], None]:
-        return lambda fut: sql.update_field(sub_id)
+        return lambda fut: sql.update(sub_id)
 
     def get_and_hack(self):
         self.__BASE_DIR.mkdir(exist_ok=True)
-
-        with ThreadPoolExecutor(self.__THREAD_COUNT) as executor, SqliteWrapper(self.__BASE_DIR) as sql, self.__LOG.open('w+', encoding='utf-8') as log:
+        with ThreadPoolExecutor(self.__THREAD_COUNT) as executor, SqliteWrapper(self.__DB) as sql, self.__LOG.open('w+', encoding='utf-8') as log:
             res: list[Future] = []
             for prob_id, subs in self.__TARGET_OJ.get_submissions().items():
                 prob_dir: Path = self.__BASE_DIR / prob_id
@@ -282,25 +291,26 @@ class HackAM:
                 std_file = Run(std_file)
 
                 sub_dir: Path = prob_dir / 'submissions'
+                sub_dir.mkdir(exist_ok=True)
                 for sub_id, *lang in subs:
-                    sub_dir: Path = sub_dir / str(sub_id)
-                    hacked_file: Path = sub_dir / f'hacked.{lang[0]}'
-                    lang = ''.join(lang)
+                    hacked_dir: Path = sub_dir / str(sub_id)
+                    hacked_file: Path = hacked_dir / f'hacked.{lang[0]}'
+                    lang = ''.join(map(str, lang))
 
-                    sql_res = sql.get_field(sub_id)
-                    if sql_res['hacked']:
+                    sql_res = sql.get(sub_id)
+                    if sql_res.hacked:
                         continue
 
-                    if sql_res['gotten'] is None:
-                        sub_dir.mkdir(exist_ok=True)
+                    if not sql_res.exists:
+                        hacked_dir.mkdir(exist_ok=True)
                         with hacked_file.open('w', encoding='utf-8') as f:
                             f.write(self.__TARGET_OJ.get_code(sub_id))
-                        sql.add_field(sub_id, lang)
+                        sql.add(sub_id, lang)
 
                     hacked_file = Run(hacked_file)
 
                     fut = executor.submit(
-                        self.__run_hack, input_file, std_file, hacked_file, sub_dir, log)
+                        self.__run_hack, input_file, std_file, hacked_file, hacked_dir, log)
                     fut.add_done_callback(self.__hacked_flag_wrap(sql, sub_id))
                     res.append(fut)
 
@@ -310,15 +320,14 @@ class HackAM:
 
     def clear_hacked_files(self):
         self.__LOG.unlink(True)
-        for x_path in self.__BASE_DIR.iterdir():
-            for dirs in x_path.iterdir():
-                if dirs.is_dir():
-                    shutil.rmtree(dirs)
+        self.__DB.unlink(True)
+        for prob_dir in self.__BASE_DIR.iterdir():
+            shutil.rmtree(prob_dir / 'submissions', ignore_errors=True)
 
     def clear_hacked_flags(self):
         self.__LOG.unlink(True)
-        for hacked_flag in self.__BASE_DIR.rglob('hacked'):
-            hacked_flag.unlink()
+        with SqliteWrapper(self.__DB) as sql:
+            sql.update()
 
     def clear_exe(self):
         for exe in self.__BASE_DIR.rglob('*.exe'):
