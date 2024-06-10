@@ -307,8 +307,82 @@ class HackAM:
                             f.write(self.__TARGET_OJ.get_code(sub_id))
                         sql.add(sub_id, lang)
 
-                    hacked_file = Run(hacked_file)
+                    hacked_file = Run(hacked_file, lang)
 
+                    fut = executor.submit(
+                        self.__run_hack, input_file, std_file, hacked_file, hacked_dir, log)
+                    fut.add_done_callback(self.__hacked_flag_wrap(sql, sub_id))
+                    res.append(fut)
+
+                    sleep(10)
+
+            wait(res)
+
+    def get_code(self, specified_ids : str = ''):
+        '''
+            Args:
+                specified_ids (str): 指定题号爬取，若为空，爬取全部题目代码.
+        '''
+        self.__BASE_DIR.mkdir(exist_ok=True)
+        with SqliteWrapper(self.__DB) as sql, self.__LOG.open('w+', encoding='utf-8') as log:
+            self.__BASE_DIR.mkdir(exist_ok=True)
+            for prob_id, subs in self.__TARGET_OJ.get_submissions().items():
+                if specified_ids and specified_ids.find(prob_id) == -1:
+                    continue
+                    
+                prob_dir: Path = self.__BASE_DIR / prob_id
+                prob_dir.mkdir(exist_ok=True)
+                sub_dir: Path = prob_dir / 'submissions'
+                sub_dir.mkdir(exist_ok=True)
+                for sub_id, *lang in subs:
+                    hacked_dir: Path = sub_dir / str(sub_id)
+                    hacked_file: Path = hacked_dir / f'hacked.{lang[0]}'
+                    lang = ''.join(map(str, lang))
+
+                    sql_res = sql.get(sub_id)
+                    if not sql_res.exists:
+                        hacked_dir.mkdir(exist_ok=True)
+                        with hacked_file.open('w', encoding='utf-8') as f:
+                            f.write(self.__TARGET_OJ.get_code(sub_id))
+                        sql.add(sub_id, lang)
+
+    def hack(self):
+        self.__BASE_DIR.mkdir(exist_ok=True)
+        with ThreadPoolExecutor(self.__THREAD_COUNT) as executor, SqliteWrapper(self.__DB) as sql, self.__LOG.open('w+', encoding='utf-8') as log:
+            res: list[Future] = []
+            for prob_dir in self.__BASE_DIR.iterdir():
+                input_file = self.__get_typed_path(prob_dir, 'input')
+                if not input_file:
+                    yellow(
+                        f'No input files for {prob_dir.name}, skipping...')
+                    continue
+
+                std_file = self.__get_typed_path(prob_dir, 'std')
+                if not std_file:
+                    yellow(
+                        f'No std files for {prob_dir.name}, skipping...')
+                    continue
+
+                input_file = Run(input_file)
+                std_file = Run(std_file)
+
+                sub_dir: Path = prob_dir / 'submissions'
+                sub_dir.mkdir(exist_ok=True)
+                for hacked_dir in sub_dir.iterdir():
+                    sub_id : str = hacked_dir.stem
+                    sql_res = sql.get(sub_id)
+                    if sql_res.hacked:
+                        continue
+                    lang = sql_res.lang
+                    print(sub_id, lang)
+                    if not lang:
+                        continue
+
+                    hacked_file: Path = hacked_dir / f'hacked.cpp'
+                    if not hacked_file.exists():
+                        hacked_file: Path = hacked_dir / f'hacked.py'
+
+                    hacked_file = Run(hacked_file, lang)
                     fut = executor.submit(
                         self.__run_hack, input_file, std_file, hacked_file, hacked_dir, log)
                     fut.add_done_callback(self.__hacked_flag_wrap(sql, sub_id))
@@ -332,3 +406,14 @@ class HackAM:
     def clear_exe(self):
         for exe in self.__BASE_DIR.rglob('*.exe'):
             exe.unlink()
+
+
+if __name__ == '__main__':
+    contest = '1984'
+    csrf = '18c0ab2f9de532dde4429a799f91ad11'
+    jsession = 'E126E5AFD2752CFB9C0DE84DDF27B51E'
+    target_oj = Codeforces(contest, csrf, jsession)
+    am = HackAM(target_oj, 'cf'+contest)
+    # am.get_and_hack()
+    # am.get_code("BD")
+    am.hack()
