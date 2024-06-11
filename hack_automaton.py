@@ -42,7 +42,7 @@ class Run:
             lang, ver = DFT[self.__SRC.suffix]
 
         self.__LANG: str = lang
-        if lang.startswith('cpp'):
+        if self.__LANG == 'cpp':
             self.__DST = self.__SRC.with_suffix('.exe')
             subprocess.run(['g++', '-DONLINE_JUDGE', f'-std=c++{ver}',
                             self.__SRC, '-o', self.__DST], stderr=subprocess.DEVNULL)
@@ -51,7 +51,7 @@ class Run:
         return str(self.__SRC)
 
     def run(self, stdin=None, stdout=None, timeout=None) -> subprocess.CompletedProcess:
-        if self.__LANG.startswith('cpp'):
+        if self.__LANG == 'cpp':
             return subprocess.run(self.__DST, stdin=stdin, stdout=stdout, stderr=subprocess.DEVNULL, timeout=timeout, check=True, encoding='utf-8')
         else:
             return subprocess.run(['python', self.__SRC], stdin=stdin, stdout=stdout, stderr=subprocess.DEVNULL, timeout=timeout, check=True, encoding='utf-8')
@@ -59,16 +59,16 @@ class Run:
 
 class TargetOJ(ABC):
     @abstractmethod
-    def get_submissions(self) -> dict[str, list[tuple[int, str, int]]]:
+    def get_submissions(self) -> dict[str, list[tuple[int, str, int | None]]]:
         pass
 
     @abstractmethod
     def get_code(self, sub_id: int) -> str:
         pass
 
-    def _cyclin_request(self, err_msg: str, request: Callable[..., requests.Response], *args, **kwargs) -> requests.Response:
+    def _cyclin_request(self, err_msg: str, request: Callable[[], requests.Response]) -> requests.Response:
         while True:
-            res = request(*args, **kwargs)
+            res = request()
             if res.ok:
                 return res
             yellow(f'{err_msg} {res.reason}, wait for 30s')
@@ -84,11 +84,11 @@ class NowCoder(TargetOJ):
         self.__T = t
 
     @override
-    def get_submissions(self) -> dict[str, list[tuple[int, str, int]]]:
+    def get_submissions(self) -> dict[str, list[tuple[int, str, int | None]]]:
         table_url = f'https://ac.nowcoder.com/acm-heavy/acm/contest/status-list?statusTypeFilter=5&id={
             self.__CONTEST_ID}&page='
         json = self._cyclin_request(
-            'get nowcoder all submission id', requests.get, table_url).json()
+            'get nowcoder all submission id', lambda: requests.get(table_url)).json()
         page_cnt = json['data']['basicInfo']['pageCount']
 
         subs = {}
@@ -108,33 +108,30 @@ class NowCoder(TargetOJ):
         return subs
 
     @override
-    def get_code(self, submission_id: int) -> str:
-        submission_url = f'https://ac.nowcoder.com/acm/contest/view-submission?submissionId={
-            submission_id}'
+    def get_code(self, sub_id: int) -> str:
+        sub_url = f'https://ac.nowcoder.com/acm/contest/view-submission?submissionId={
+            sub_id}'
         res = self._cyclin_request(
-            f'get nowcoder {submission_id} submission code', requests.get, submission_url, cookies={'t': self.__T})
+            f'get nowcoder {sub_id} submission code', lambda: requests.get(sub_url, cookies={'t': self.__T}))
         soup = BeautifulSoup(res.text, 'html.parser')
         return soup.find('pre').get_text()
 
 
 class Codeforces(TargetOJ):
-    def __init__(self, contest_id: int, csrf_token: str, jsession_id: str):
+    def __init__(self, contest_id: int):
         '''
         csrf_token: 按 F12 打开开发者工具，选择网络->打开一个提交->找到 submitSource 包 -> 负载
 
         jsession_id: 在 cookie 中，可以浏览器 url 左边，也可以在 F12 中找
         '''
-        super().__init__()
         self.__CONTEST_ID = contest_id
-        self.__CSRF_TOKEN = csrf_token
-        self.__JSESSION_ID = jsession_id
 
     @override
-    def get_submissions(self) -> dict[str, list[tuple[int, str, int]]]:
+    def get_submissions(self) -> dict[str, list[tuple[int, str, int | None]]]:
         table_url = f'https://codeforces.com/api/contest.status?contestId={
             self.__CONTEST_ID}'
         json = self._cyclin_request(
-            'get codeforces all submission id', requests.get, table_url).json()
+            'get codeforces all submission id', lambda: requests.get(table_url)).json()
 
         subs = {}
         for submission in json['result']:
@@ -154,18 +151,13 @@ class Codeforces(TargetOJ):
         return subs
 
     @override
-    def get_code(self, submission_id: int) -> str:
-        submission_url = f'https://codeforces.com/data/submitSource?submissionId={
-            submission_id}'
-        header = {
-            'Referer': f'https://codeforces.com/contest/{self.__CONTEST_ID}/status',
-            'X-Csrf-Token': self.__CSRF_TOKEN,
-            'cookie': f'JSESSIONID={self.__JSESSION_ID}',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
-        }
-        res = self._cyclin_request(
-            f'get codeforces {submission_id} submission code', requests.post, submission_url, headers=header).json()
-        return res['source'].replace('\r', '')
+    def get_code(self, sub_id: int) -> str:
+        sub_url = f'https://codeforces.com/contest/{
+            self.__CONTEST_ID}/submission/{sub_id}'
+        res = self._cyclin_request(f'get codeforces {
+                                   sub_id} submission code', lambda: requests.get(sub_url))
+        soup = BeautifulSoup(res.text, 'html.parser')
+        return soup.find('pre', id='program-source-text').get_text().replace('\r', '')
 
 
 class SqliteWrapper:
@@ -290,14 +282,13 @@ class HackAM:
 
                 input_file = self.__get_typed_path(prob_dir, 'input')
                 if not input_file:
-                    yellow(
-                        f'No input files for {prob_dir.name}, skipping...')
+                    yellow(f'No input file for problem {
+                           prob_id}, skipping...')
                     continue
 
                 std_file = self.__get_typed_path(prob_dir, 'std')
                 if not std_file:
-                    yellow(
-                        f'No std files for {prob_dir.name}, skipping...')
+                    yellow(f'No std file for problem {prob_id}, skipping...')
                     continue
 
                 input_file = Run(input_file)
@@ -370,16 +361,17 @@ class HackAM:
                 if prob_dir.is_file():
                     continue
 
+                prob_id = prob_dir.name
+
                 input_file = self.__get_typed_path(prob_dir, 'input')
                 if not input_file:
-                    yellow(
-                        f'No input files for {prob_dir.name}, skipping...')
+                    yellow(f'No input file for problem {
+                           prob_id}, skipping...')
                     continue
 
                 std_file = self.__get_typed_path(prob_dir, 'std')
                 if not std_file:
-                    yellow(
-                        f'No std files for {prob_dir.name}, skipping...')
+                    yellow(f'No std file for problem {prob_id}, skipping...')
                     continue
 
                 input_file = Run(input_file)
