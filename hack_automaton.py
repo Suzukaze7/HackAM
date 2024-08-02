@@ -119,11 +119,6 @@ class NowCoder(TargetOJ):
 
 class Codeforces(TargetOJ):
     def __init__(self, contest_id: int):
-        '''
-        csrf_token: 按 F12 打开开发者工具，选择网络->打开一个提交->找到 submitSource 包 -> 负载
-
-        jsession_id: 在 cookie 中，可以浏览器 url 左边，也可以在 F12 中找
-        '''
         self.__CONTEST_ID = contest_id
 
     @override
